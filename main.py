@@ -165,7 +165,7 @@ if __name__ == '__main__':
         cv2.imshow("window", np.array(pil_frame))
         out.write(np.array(pil_frame))
         
-        if cv2.waitKey(5) & 0xFF == ord('q'):
+        if cv2.waitKey(25) & 0xFF == ord('q'):
             break
 
     cap.release()

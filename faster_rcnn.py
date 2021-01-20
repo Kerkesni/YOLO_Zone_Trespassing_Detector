@@ -3,8 +3,8 @@ import torchvision
 import torch
 import cv2
 import numpy as np
-import argparse
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
+from utils import *
 from coco_names import COCO_INSTANCE_CATEGORY_NAMES as coco_names
 
 # define the torchvision image transforms
@@ -57,6 +57,59 @@ def calculate_intersection(zone, box2):
     pred_box_area = (box2[3]-box2[1]) * (box2[2]-box2[0])
     return overlap_area/pred_box_area
 
+# Returns true if point is inside zone
+def is_point_inside_area(zone, point):
+    if (point[0] > zone[0] and point[0] < zone[2] and point[1] > zone[1] and point[1] < zone[3]) :
+        return True; 
+    return False; 
+
+# draws bounding boxes on image
+def draw(original_image, det_boxes, det_labels,is_zoned, zone_bbox, intersection_threshold):
+    inside_zone_color = (0, 0, 255)
+    # If no objects found, the detected labels will be set to ['0.'], i.e. ['background'] in SSD300.detect_objects() in model.py
+    if det_labels == ['background']:
+        # Just return original image
+        return original_image
+
+    # Annotate
+    annotated_image = original_image
+    draw = ImageDraw.Draw(annotated_image)
+    font = ImageFont.truetype("./calibril.ttf", 15)
+
+    # Suppress specific classes, if needed
+    suppress = ["person"]
+    for i in range(len(det_boxes)):
+        if suppress is not None:
+            if not det_labels[i] in suppress:
+                continue
+
+        # Boxes
+        box_location = det_boxes[i]
+
+        # Check if person is inside zone
+        if is_zoned:
+            inside = is_point_inside_area(zone_bbox, [box_location[2], box_location[3]]) or calculate_intersection(zone_bbox, [int(box_location[0]), int(box_location[1]), int(box_location[2]), int(box_location[3])]) > intersection_threshold
+
+            if not inside:
+                draw.rectangle(xy=[int(box_location[0]), int(box_location[1]), int(box_location[2]), int(box_location[3])], outline=label_color_map[det_labels[i]])
+            else:
+                draw.rectangle(xy=[int(box_location[0]), int(box_location[1]), int(box_location[2]), int(box_location[3])], outline=inside_zone_color)
+        else:
+                draw.rectangle(xy=[int(box_location[0]), int(box_location[1]), int(box_location[2]), int(box_location[3])], outline=label_color_map[det_labels[i]])
+
+
+        # Text
+        text_size = font.getsize(det_labels[i].upper())
+        text_location = [box_location[0] + 2., box_location[1] - text_size[1]]
+        textbox_location = [box_location[0], box_location[1] - text_size[1], box_location[0] + text_size[0] + 4.,
+                            box_location[1]]
+
+        draw.rectangle(xy=textbox_location, fill=label_color_map[det_labels[i]])
+        draw.text(xy=text_location, text=det_labels[i].upper(), fill='white', font=font)
+    del draw
+
+    return annotated_image
+
 # Returns coords of zone bounding boxe
 def getZoneBbox(pts):
     y = pts[:, 0]
@@ -103,10 +156,10 @@ if __name__ == "__main__":
         image = Image.fromarray(frame)
         with torch.no_grad():
             boxes, classes, labels = predict(image, model, device, 0.8)
-        frame = draw_boxes(boxes, classes, labels, image, zone_bbox)
+        pil_frame = draw(Image.fromarray(frame), boxes, classes, True, zone_bbox, 0.6)
 
-        cv2.imshow("frame", frame)
-        out.write(frame)
+        cv2.imshow("frame", np.array(pil_frame))
+        out.write(np.array(pil_frame))
 
         if cv2.waitKey(25) & 0xFF == ord('q'):
             break
